@@ -1,114 +1,185 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Nexi Checkout – NestJS Payment Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A backend-only integration with **Nexi Checkout** (formerly Nets Easy) built with NestJS, Prisma and SQLite.
+It runs against the Nexi **test environment** only, so no real money is involved.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+The project covers the full payment cycle:
 
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ npm install
+```
+create order → create payment at Nexi → redirect customer to the hosted payment page
+→ receive the result (return URL + webhook) → verify with Nexi → update the order
 ```
 
-## Compile and run the project
+## Tech stack
+
+- NestJS (TypeScript)
+- Prisma 6 + SQLite
+- `@nestjs/axios` for calls to the Nexi API
+- `class-validator` / `class-transformer` for request validation
+- `@nestjs/swagger` for API docs
+- ngrok to expose the local webhook endpoint
+
+## Features
+
+- Create orders (the server calculates the total, the client never sends `amount`)
+- Create a Nexi payment and return the hosted payment page URL
+- Verify payments directly with Nexi (the return URL alone is never trusted)
+- Webhook endpoint protected by an authorization token
+- Webhook idempotency (the same notification is never processed twice)
+- Separate `Transaction` table that records every payment attempt, including the `chargeId`
+- Full refund of a paid order
+
+## Order statuses
+
+| Status | Meaning |
+|---|---|
+| `PENDING` | Order created, payment not completed |
+| `PAID` | Nexi confirmed the charge |
+| `REFUNDED` | The charge was refunded through Nexi |
+| `FAILED` | Defined in the schema (see *Known limitations*) |
+
+## Getting started
+
+### 1. Prerequisites
+
+- Node.js 20+ and npm
+- A Nexi Checkout **test** account: register at the Nexi portal, then go to **Integration → Company** and copy the **Test Secret Key**
+- [ngrok](https://ngrok.com) (free account) for the webhook
+
+### 2. Install
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+git clone https://github.com/MOhamadOmarHajALi/nexi-checkout.git
+cd nexi-checkout
+npm install
 ```
 
-## Run tests
+### 3. Environment variables
+
+Copy the example file and fill in your values:
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+cp example.env .env
 ```
 
-## Deployment
+| Variable | Description |
+|---|---|
+| `PORT` | Server port (default `3000`) |
+| `DATABASE_URL` | SQLite file, e.g. `file:./dev.db` |
+| `NEXI_BASE_URL` | `https://test.api.dibspayment.eu` |
+| `NEXI_SECRET_KEY` | Your Nexi **test** secret key (never commit it) |
+| `WEBHOOK_TOKEN` | Any secret string. It is sent to Nexi when a payment is created and must come back in the webhook `Authorization` header |
+| `APP_BASE_URL` | `http://localhost:3000` (used to build the return URL) |
+| `WEBHOOK_BASE_URL` | Your public ngrok HTTPS URL (used to build the webhook URL) |
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+> `.env` is git-ignored. Never commit real keys.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 4. Database
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npx prisma migrate dev
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+This creates the SQLite database and generates the Prisma client.
 
-## Observability
+### 5. Expose the webhook with ngrok
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+In a second terminal:
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+```bash
+ngrok http 3000
+```
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+Copy the `https://....ngrok-free.dev` URL into `WEBHOOK_BASE_URL` in `.env`, then restart the server.
 
-## Resources
+> The webhook URL is registered with Nexi **when the payment is created**. If you change `WEBHOOK_BASE_URL` or `WEBHOOK_TOKEN`, create a new order and a new payment.
 
-Check out a few resources that may come in handy when working with NestJS:
+### 6. Run
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+npm run start:dev
+```
 
-## Support
+- API: `http://localhost:3000`
+- Swagger UI: `http://localhost:3000/docs`
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## API endpoints
 
-## Stay in touch
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/orders` | Create an order (`PENDING`) |
+| `GET` | `/orders/:id` | Get an order and its status |
+| `POST` | `/payments/checkout/:orderId` | Create a payment at Nexi, store `paymentId`, return `hostedPaymentPageUrl` |
+| `GET` | `/payments/return?paymentid=...` | Return page after payment. Verifies the payment with Nexi and updates the order |
+| `POST` | `/payments/webhook` | Receives `payment.checkout.completed` from Nexi, checks the token, verifies with Nexi, updates the order |
+| `POST` | `/payments/refund/:orderId` | Full refund of a `PAID` order |
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+### Create an order
 
-## License
+```http
+POST /orders
+Content-Type: application/json
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+{
+  "items": [
+    { "reference": "p-1", "name": "Shawarma", "quantity": 2, "unitPrice": 5000 }
+  ]
+}
+```
+
+Amounts use the **smallest currency unit** (`5000` = 50.00 SEK). The server computes `amount` from the items, so the total always matches the sum of `grossTotalAmount` that Nexi requires.
+
+## Testing a payment
+
+1. `POST /orders` → note the order `id`.
+2. `POST /payments/checkout/:id` → open the returned `hostedPaymentPageUrl`.
+3. Pay with a Nexi test card (any future expiry date, any 3-digit CVC):
+
+| Card | Result |
+|---|---|
+| `4268 2700 8737 4847` (Visa) | Success |
+| `4925 0000 0000 0087` (Visa) | Payment fails |
+
+   More cards are listed in the [Nexi test card documentation](https://developer.nexigroup.com/nexi-checkout/en-EU/docs/test-card-processing/).
+
+4. After a successful payment, `GET /orders/:id` returns `status: "PAID"`.
+5. To refund: `POST /payments/refund/:id` → status becomes `REFUNDED`.
+
+You can watch the webhook requests that Nexi sends in the ngrok inspector at `http://127.0.0.1:4040`.
+
+## How it works
+
+### Why both the return URL and the webhook?
+
+- The **return URL** only runs if the customer comes back to your site.
+- The **webhook** is sent by Nexi directly to the server, so the order is updated even if the customer closes the browser.
+- Neither is trusted on its own: both call `GET /v1/payments/{paymentId}` at Nexi and check `chargedAmount` before marking the order as `PAID`.
+
+### Webhook security and idempotency
+
+- The `Authorization` header must equal `WEBHOOK_TOKEN`, otherwise the request is rejected with `401`.
+- Each notification has a unique `id`. It is stored in the `WebhookEvent` table (primary key), so a repeated notification returns `{ received: true, duplicate: true }` and is not processed again.
+
+### Database
+
+- `Order`: items, amount, currency, `paymentId`, status
+- `Transaction`: one row per payment attempt (`paymentId`, `chargeId`, status, trimmed Nexi response)
+- `WebhookEvent`: processed webhook ids
+
+Updates to the order and its transaction run inside a single Prisma `$transaction`, so they succeed or fail together.
+
+## Postman
+
+A Postman collection with all endpoints is in the `postman/` folder. Import it and set the `baseUrl` variable to `http://localhost:3000`.
+
+## Known limitations
+
+- Refunds are **full refunds only**.
+- The `FAILED` status exists in the schema, but a failed card attempt currently leaves the order as `PENDING`, because the Nexi hosted page lets the customer retry and sends no failure webhook.
+- The refund endpoint is not authenticated (acceptable for a test-environment exercise; a real system would restrict it to admins).
+- The ngrok URL is for development only.
+
+## Security notes
+
+- Secrets live only in `.env`, which is git-ignored. `example.env` contains no real values.
+- Only the minimum Nexi response (amounts and charges) is stored, not customer personal data.
