@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Order {
+  id        Int         @id @default(autoincrement())
+  items     Json
+  amount    Int
+  currency  String      @default("SEK")
+  paymentId String?     @unique
+  status    OrderStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  transactions Transaction[]
+}
+enum TransactionStatus {
+  CREATED     // أُنشئ الدفع عند Nexi
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Transaction {
+  id        Int               @id @default(autoincrement())
+  orderId   Int
+  order     Order             @relation(fields: [orderId], references: [id])
+  paymentId String            @unique
+  chargeId  String?
+  amount    Int
+  currency  String
+  status    TransactionStatus @default(CREATED)
+  rawResponse Json?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+}
+model WebhookEvent {
+  id         String   @id          // معرّف الإشعار القادم من Nexi
+  paymentId  String
+  receivedAt DateTime @default(now())
+}
